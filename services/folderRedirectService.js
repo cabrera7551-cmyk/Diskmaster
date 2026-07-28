@@ -4,11 +4,27 @@
 
 const { runPowerShellJson, runPowerShell, sanitizePowerShellString } = require('../utils/powershell');
 const { getUserProfile, USER_FOLDERS } = require('../services/analysisService');
+const { BackupManager } = require('../utils/backupManager');
 const path = require('path');
 const fs = require('fs');
 
-// Almacenamiento de backups en memoria
+// Almacenamiento de backups en memoria (para compatibilidad, ahora respaldado por disco)
 const registryBackups = new Map();
+
+// Inicializar gestor de backups
+let backupManager = null;
+
+function getBackupManager() {
+  if (!backupManager) {
+    const app = require('electron').app || { getPath: () => require('os').tmpdir() };
+    const userData = app.getPath('userData');
+    const backupDir = path.join(userData, 'backups', 'folder_redirects');
+    backupManager = new BackupManager(backupDir);
+    // Cargar backups existentes al iniciar
+    backupManager.loadAllBackups();
+  }
+  return backupManager;
+}
 
 const FOLDER_REGISTRY_MAP = {
   downloads: '{374DE290-123F-4565-9164-39C4925E467B}',
@@ -89,7 +105,19 @@ async function backupRegistryValue(folderKey) {
   if (result.success && result.stdout && result.stdout !== 'null') {
     try {
       const backup = JSON.parse(result.stdout);
+      
+      // Guardar en memoria (compatibilidad)
       registryBackups.set(folderKey, backup);
+      
+      // Guardar en disco con BackupManager
+      const manager = getBackupManager();
+      const saveResult = manager.saveBackup('folder_redirect', folderKey, backup);
+      
+      if (saveResult.success) {
+        backup.backupId = saveResult.backupId;
+        backup.persisted = true;
+      }
+      
       return backup;
     } catch {
       return null;
@@ -101,7 +129,19 @@ async function backupRegistryValue(folderKey) {
 async function restoreRegistryValue(folderKey) {
   if (process.platform !== 'win32') return { success: false, error: 'Solo disponible en Windows' };
 
-  const backup = registryBackups.get(folderKey);
+  let backup = registryBackups.get(folderKey);
+  
+  // Si no está en memoria, intentar cargar desde disco
+  if (!backup) {
+    const manager = getBackupManager();
+    const latestBackup = manager.getLatestBackup('folder_redirect', folderKey);
+    if (latestBackup) {
+      backup = latestBackup.data;
+      // Restaurar en memoria para accesos futuros
+      registryBackups.set(folderKey, backup);
+    }
+  }
+  
   if (!backup) {
     return { success: false, error: 'No hay backup disponible para esta carpeta' };
   }
@@ -127,7 +167,7 @@ async function restoreRegistryValue(folderKey) {
 
   const result = await runPowerShellJson(script);
   if (result.success && result.data?.success) {
-    return { success: true, folderKey, restoredValue: backup.originalValue };
+    return { success: true, folderKey, restoredValue: backup.originalValue, backupId: backup.backupId };
   }
 
   return { success: false, error: result.stderr || 'Error al restaurar valor del registro' };
@@ -268,5 +308,11 @@ module.exports = {
   redirectFolder,
   verifyFolderRedirect,
   backupRegistryValue,
-  restoreRegistryValue
+  restoreRegistryValue,
+  getBackupManager,
+  // Funciones adicionales para gestión de backups
+  getBackupStats: () => getBackupManager().getStats(),
+  listBackups: (type, key) => getBackupManager().listBackups(type, key),
+  deleteBackup: (backupId) => getBackupManager().deleteBackup(backupId),
+  clearAllBackups: () => getBackupManager().clearAllBackups()
 };

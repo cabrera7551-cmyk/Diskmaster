@@ -5,9 +5,25 @@
 const fs = require('fs');
 const path = require('path');
 const { runPowerShellJson } = require('../utils/powershell');
+const { BackupManager } = require('../utils/backupManager');
 
-// Almacenamiento de backups en memoria
+// Almacenamiento de backups en memoria (para compatibilidad, ahora respaldado por disco)
 const browserBackups = new Map();
+
+// Inicializar gestor de backups
+let backupManager = null;
+
+function getBackupManager() {
+  if (!backupManager) {
+    const app = require('electron').app || { getPath: () => require('os').tmpdir() };
+    const userData = app.getPath('userData');
+    const backupDir = path.join(userData, 'backups', 'browser_config');
+    backupManager = new BackupManager(backupDir);
+    // Cargar backups existentes al iniciar
+    backupManager.loadAllBackups();
+  }
+  return backupManager;
+}
 
 const BROWSER_PATHS = {
   chrome: {
@@ -98,7 +114,19 @@ function createBackup(filePath) {
     };
     
     const backupKey = `${filePath}_${backup.timestamp}`;
+    
+    // Guardar en memoria (compatibilidad)
     browserBackups.set(backupKey, backup);
+    
+    // Guardar en disco con BackupManager
+    const manager = getBackupManager();
+    const key = path.basename(filePath); // Usar nombre de archivo como clave
+    const saveResult = manager.saveBackup('browser_config', key, backup);
+    
+    if (saveResult.success) {
+      backup.backupId = saveResult.backupId;
+      backup.persisted = true;
+    }
     
     return backupKey;
   } catch {
@@ -108,11 +136,24 @@ function createBackup(filePath) {
 
 function restoreBackup(backupKey) {
   try {
-    const backup = browserBackups.get(backupKey);
+    let backup = browserBackups.get(backupKey);
+    
+    // Si no está en memoria, intentar cargar desde disco
+    if (!backup) {
+      const manager = getBackupManager();
+      // Intentar encontrar el backup por backupId si es proporcionado
+      const loadResult = manager.loadBackup(backupKey);
+      if (loadResult.success) {
+        backup = loadResult.backup.data;
+        // Restaurar en memoria para accesos futuros
+        browserBackups.set(backupKey, backup);
+      }
+    }
+    
     if (!backup) return { success: false, error: 'Backup no encontrado' };
     
     fs.writeFileSync(backup.originalPath, backup.content, 'utf8');
-    return { success: true, restoredPath: backup.originalPath };
+    return { success: true, restoredPath: backup.originalPath, backupId: backup.backupId };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -207,5 +248,11 @@ module.exports = {
   setBrowserDownloadPath, 
   BROWSER_PATHS,
   createBackup,
-  restoreBackup
+  restoreBackup,
+  getBackupManager,
+  // Funciones adicionales para gestión de backups
+  getBackupStats: () => getBackupManager().getStats(),
+  listBackups: (type, key) => getBackupManager().listBackups(type, key),
+  deleteBackup: (backupId) => getBackupManager().deleteBackup(backupId),
+  clearAllBackups: () => getBackupManager().clearAllBackups()
 };
