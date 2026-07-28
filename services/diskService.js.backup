@@ -1,0 +1,231 @@
+/**
+ * Detección de discos físicos, particiones y tipos de almacenamiento.
+ */
+
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const os = require('os');
+const { runPowerShellJson } = require('../utils/powershell');
+const { formatPercent } = require('../utils/format');
+
+const execFileAsync = promisify(execFile);
+
+const DISK_TYPE_MAP = {
+  SSD: 'SSD',
+  HDD: 'HDD',
+  NVMe: 'NVMe',
+  Unspecified: 'Desconocido',
+  USB: 'USB',
+  Removable: 'USB'
+};
+
+function getDiskStatus(percentUsed) {
+  if (percentUsed >= 90) return { label: 'CRÍTICO', level: 'critical' };
+  if (percentUsed >= 75) return { label: 'ALTO', level: 'warning' };
+  if (percentUsed >= 50) return { label: 'MODERADO', level: 'moderate' };
+  return { label: 'ESPACIO DISPONIBLE', level: 'ok' };
+}
+
+async function detectDisksWindows() {
+  const script = `
+    $disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {
+      $letter = $_.DeviceID
+      $part = Get-Partition -DriveLetter ($letter -replace ':','') -ErrorAction SilentlyContinue
+      $physical = $null
+      $mediaType = 'Unspecified'
+      $busType = ''
+      $isBoot = $false
+      
+      if ($part) {
+        $disk = Get-Disk -Number $part.DiskNumber -ErrorAction SilentlyContinue
+        if ($disk) {
+          $physical = Get-PhysicalDisk -UniqueId $disk.UniqueId -ErrorAction SilentlyContinue
+          if ($physical) {
+            $mediaType = $physical.MediaType
+            $busType = $physical.BusType
+          }
+          $isBoot = $disk.IsBoot -eq $true
+        }
+      }
+      
+      $total = [int64]$_.Size
+      $free = [int64]$_.FreeSpace
+      $used = $total - $free
+      
+      [PSCustomObject]@{
+        letter = $letter
+        label = $_.VolumeName
+        totalBytes = $total
+        usedBytes = $used
+        freeBytes = $free
+        percentUsed = if ($total -gt 0) { [math]::Round(($used / $total) * 100) } else { 0 }
+        fileSystem = $_.FileSystem
+        mediaType = $mediaType
+        busType = $busType
+        isSystem = ($letter -eq ($env:SystemDrive))
+        isBoot = $isBoot
+        isAvailable = $_.DriveType -eq 2 -or $_.DriveType -eq 3
+      }
+    }
+    
+    $usb = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=2" | ForEach-Object {
+      $total = [int64]$_.Size
+      $free = [int64]$_.FreeSpace
+      $used = $total - $free
+      
+      [PSCustomObject]@{
+        letter = $_.DeviceID
+        label = $_.VolumeName
+        totalBytes = $total
+        usedBytes = $used
+        freeBytes = $free
+        percentUsed = if ($total -gt 0) { [math]::Round(($used / $total) * 100) } else { 0 }
+        fileSystem = $_.FileSystem
+        mediaType = 'USB'
+        busType = 'USB'
+        isSystem = $false
+        isBoot = $false
+        isAvailable = $true
+      }
+    }
+    
+    @($disks) + @($usb) | ConvertTo-Json -Depth 4
+  `;
+
+  const result = await runPowerShellJson(script);
+  if (result.success && result.data) {
+    const disks = Array.isArray(result.data) ? result.data : [result.data];
+    return disks.map(normalizeDisk);
+  }
+  return detectDisksFallback();
+}
+
+async function detectDisksLinux() {
+  try {
+    const { stdout } = await execFileAsync('lsblk', ['-J', '-b', '-o', 'NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,ROTA,MODEL'], { encoding: 'utf8' });
+    const data = JSON.parse(stdout);
+    const disks = [];
+
+    for (const dev of data.blockdevices || []) {
+      if (dev.type === 'disk') {
+        for (const part of dev.children || []) {
+          if (part.mountpoint) {
+            const total = parseInt(part.size, 10) || dev.size;
+            disks.push(normalizeDisk({
+              letter: part.mountpoint,
+              label: part.label || dev.model || part.name,
+              totalBytes: total,
+              usedBytes: Math.round(total * 0.5),
+              freeBytes: Math.round(total * 0.5),
+              percentUsed: 50,
+              fileSystem: part.fstype,
+              mediaType: part.rota === '0' ? 'SSD' : 'HDD',
+              busType: '',
+              isSystem: part.mountpoint === '/'
+            }));
+          }
+        }
+      }
+    }
+
+    if (disks.length === 0) {
+      return detectDisksFallback();
+    }
+
+    // Obtener uso real con df
+    for (const disk of disks) {
+      try {
+        const { stdout: dfOut } = await execFileAsync('df', ['-B1', disk.letter], { encoding: 'utf8' });
+        const lines = dfOut.trim().split('\n');
+        if (lines.length >= 2) {
+          const parts = lines[1].split(/\s+/);
+          disk.totalBytes = parseInt(parts[1], 10);
+          disk.usedBytes = parseInt(parts[2], 10);
+          disk.freeBytes = parseInt(parts[3], 10);
+          disk.percentUsed = formatPercent(disk.usedBytes, disk.totalBytes);
+        }
+      } catch {
+        // mantener estimación
+      }
+    }
+
+    return disks;
+  } catch {
+    return detectDisksFallback();
+  }
+}
+
+function detectDisksFallback() {
+  const home = os.homedir();
+  return [{
+    letter: process.platform === 'win32' ? 'C:' : '/',
+    label: 'Sistema',
+    totalBytes: 128 * 1024 ** 3,
+    usedBytes: 123 * 1024 ** 3,
+    freeBytes: 5 * 1024 ** 3,
+    percentUsed: 96,
+    fileSystem: 'NTFS',
+    mediaType: 'SSD',
+    busType: '',
+    isSystem: true,
+    isFallback: true
+  }];
+}
+
+function normalizeDisk(raw) {
+  let mediaType = raw.mediaType || 'Unspecified';
+  if (mediaType === 'Unspecified' && raw.busType === 'NVMe') mediaType = 'NVMe';
+  if (raw.mediaType === 'Removable' || raw.busType === 'USB') mediaType = 'USB';
+
+  const typeLabel = DISK_TYPE_MAP[mediaType] || mediaType;
+  const status = getDiskStatus(raw.percentUsed || 0);
+
+  return {
+    letter: raw.letter,
+    label: raw.label || '',
+    totalBytes: raw.totalBytes || 0,
+    usedBytes: raw.usedBytes || 0,
+    freeBytes: raw.freeBytes || 0,
+    percentUsed: raw.percentUsed || 0,
+    fileSystem: raw.fileSystem || '',
+    mediaType: typeLabel,
+    busType: raw.busType || '',
+    isSystem: !!raw.isSystem,
+    isBoot: !!raw.isBoot,
+    isAvailable: raw.isAvailable !== false,
+    isFallback: !!raw.isFallback,
+    status: status.label,
+    statusLevel: status.level
+  };
+}
+
+async function detectDisks() {
+  if (process.platform === 'win32') {
+    return detectDisksWindows();
+  }
+  return detectDisksLinux();
+}
+
+function classifyDisks(disks) {
+  const availableDisks = disks.filter(d => d.isAvailable);
+  const ssd = availableDisks.find((d) => ['SSD', 'NVMe'].includes(d.mediaType) || d.isSystem || d.isBoot);
+  const hdd = availableDisks.find((d) => d.mediaType === 'HDD' && d.letter !== ssd?.letter);
+  const usb = availableDisks.filter((d) => d.mediaType === 'USB');
+
+  // Si no hay HDD explícito, usar el disco con más espacio libre que no sea SSD del sistema
+  let targetHdd = hdd;
+  if (!targetHdd) {
+    const candidates = availableDisks
+      .filter((d) => d.letter !== ssd?.letter && d.freeBytes > 50 * 1024 ** 3)
+      .sort((a, b) => b.freeBytes - a.freeBytes);
+    targetHdd = candidates[0] || null;
+  }
+
+  return { ssd: ssd || availableDisks[0], hdd: targetHdd, usb, all: availableDisks };
+}
+
+function getAvailableDestinations(disks) {
+  return disks.filter(d => d.isAvailable && !d.isSystem && d.freeBytes > 1024 * 1024 * 1024);
+}
+
+module.exports = { detectDisks, classifyDisks, getDiskStatus, getAvailableDestinations };

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>DISKMASTER_v1 // gestor de almacenamiento</title>
+  <link rel="icon" type="image/png" href="../assets/icon.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">DISKMASTER_v1 <span class="logo-sub">// gestor de almacenamiento</span></div>
+        <div class="subtitle">GESTOR DE ALMACENAMIENTO</div>
+      </div>
+      <div class="header-right">
+        <div class="status-badge" id="status-badge">
+          estado: <span class="status-ok" id="status-text">listo</span>
+        </div>
+        <label class="sim-toggle">
+          <input type="checkbox" id="simulation-mode">
+          <span>MODO SIMULACIÓN</span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-view="dashboard">Panel principal</button>
+      <button class="nav-tab" data-view="folders">Carpetas Windows</button>
+      <button class="nav-tab" data-view="engineering">Modo Ingeniería</button>
+      <button class="nav-tab" data-view="downloads">Config. Descargas</button>
+      <button class="nav-tab" data-view="install">Config. Instalaciones</button>
+      <button class="nav-tab" data-view="log">Log de actividad</button>
+    </nav>
+
+    <!-- Main content -->
+    <main class="main-content">
+      <!-- Dashboard View -->
+      <section class="view active" id="view-dashboard">
+        <!-- Disk cards -->
+        <div class="disk-grid" id="disk-grid">
+          <div class="disk-card placeholder">
+            <div class="disk-title">[ Esperando análisis ]</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+            <div class="disk-stats">Presiona "ANALIZAR SISTEMA" para detectar unidades</div>
+          </div>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="panel" id="recommendations-panel">
+          <div class="panel-title">[ RECOMENDACIONES ]</div>
+          <div class="table-wrap">
+            <table class="data-table" id="recommendations-table">
+              <thead>
+                <tr>
+                  <th>elemento</th>
+                  <th>tamaño</th>
+                  <th>tipo</th>
+                  <th>acción sugerida</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="recommendations-body">
+                <tr class="empty-row">
+                  <td colspan="5">Sin datos — analiza el sistema primero</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Destination -->
+        <div class="panel dest-panel" id="dest-panel" hidden>
+          <div class="panel-title">[ DESTINO ]</div>
+          <div id="dest-info" class="dest-info"></div>
+          <div class="dest-row">
+            <label>Carpeta destino:</label>
+            <input type="text" id="dest-path" readonly placeholder="Seleccione una unidad de destino...">
+            <button class="btn btn-secondary" id="btn-select-dest-drive">Seleccionar Unidad</button>
+            <button class="btn btn-secondary" id="btn-select-dest">Examinar</button>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="action-bar">
+          <button class="btn" id="btn-analyze">analizar sistema</button>
+          <button class="btn" id="btn-move-selected">mover seleccionados</button>
+          <button class="btn" id="btn-redirect">redirigir carpetas de windows</button>
+          <button class="btn" id="btn-install-config">config. instalacion default</button>
+          <button class="btn btn-primary" id="btn-execute">▶ ejecutar ahora</button>
+        </div>
+      </section>
+
+      <!-- Folders View -->
+      <section class="view" id="view-folders">
+        <div class="panel">
+          <div class="panel-title">[ REDIRIGIR CARPETAS DE WINDOWS ]</div>
+          <div id="folder-redirect-list" class="folder-list"></div>
+        </div>
+      </section>
+
+      <!-- Engineering View -->
+      <section class="view" id="view-engineering">
+        <div class="panel">
+          <div class="panel-title">[ MODO INGENIERÍA ]</div>
+          <p class="panel-desc">Proyectos AutoCAD, Civil 3D, Revit, SketchUp, ArcGIS, QGIS</p>
+          <div id="engineering-list" class="engineering-list"></div>
+        </div>
+      </section>
+
+      <!-- Downloads View -->
+      <section class="view" id="view-downloads">
+        <div class="panel">
+          <div class="panel-title">[ CONFIGURACIÓN DE DESCARGAS ]</div>
+          <div id="browser-list" class="browser-list"></div>
+        </div>
+      </section>
+
+      <!-- Install Config View -->
+      <section class="view" id="view-install">
+        <div class="panel">
+          <div class="panel-title">[ CONFIGURACIÓN DE INSTALACIONES ]</div>
+          <div class="install-guide">
+            <div class="guide-section">
+              <h3 class="guide-title ssd">SSD — Mantener:</h3>
+              <ul>
+                <li>Windows y archivos del sistema</li>
+                <li>Programas principales y aplicaciones que necesiten velocidad</li>
+                <li>AutoCAD, Office, IDE y herramientas frecuentes</li>
+              </ul>
+            </div>
+            <div class="guide-section">
+              <h3 class="guide-title hdd">HDD — Mover/Reinstalar:</h3>
+              <ul>
+                <li>Archivos personales, proyectos, descargas, videos</li>
+                <li>Archivos grandes y copias de seguridad</li>
+                <li>Programas que puedan reinstalarse en HDD</li>
+              </ul>
+            </div>
+            <div class="dest-row">
+              <label>Ruta preferida para nuevas instalaciones:</label>
+              <input type="text" id="install-pref-path" placeholder="D:\Programas">
+              <button class="btn btn-secondary" id="btn-select-install-path">Examinar</button>
+            </div>
+            <p class="note">⚠ Cada instalador puede utilizar una ruta diferente. Esta preferencia es orientativa.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Log View -->
+      <section class="view" id="view-log">
+        <div class="panel">
+          <div class="panel-title">[ LOG DE ACTIVIDAD ]</div>
+          <div class="log-full" id="log-full"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Terminal -->
+    <div class="terminal" id="terminal">
+      <div class="terminal-line">&gt; sistema listo. esperando órdenes...</div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal-overlay" id="preview-modal" hidden>
+      <div class="modal">
+        <div class="modal-header">
+          <span>PREVISUALIZACIÓN DE ACCIONES</span>
+          <button class="modal-close" id="preview-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="preview-section">
+            <div class="preview-label">ACCIONES A REALIZAR:</div>
+            <ul id="preview-actions" class="preview-list"></ul>
+          </div>
+          <div class="preview-summary">
+            <div class="summary-item">
+              <span>ESPACIO ESTIMADO A LIBERAR:</span>
+              <strong id="preview-space">—</strong>
+            </div>
+            <div class="summary-item">
+              <span>DESTINO:</span>
+              <strong id="preview-dest">—</strong>
+            </div>
+          </div>
+          <div id="preview-risks" class="preview-risks"></div>
+          <div class="preview-section" id="execution-progress" hidden>
+            <div class="preview-label">PROCESO EN EJECUCIÓN</div>
+            <div class="exec-steps" id="exec-steps"></div>
+            <div class="progress-bar large"><div class="progress-fill" id="exec-progress-bar" style="width:0%"></div></div>
+            <div class="exec-detail" id="exec-detail"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="preview-cancel">CANCELAR</button>
+          <button class="btn" id="preview-modify">MODIFICAR</button>
+          <button class="btn btn-primary" id="preview-execute">EJECUTAR AHORA</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Report Modal -->
+    <div class="modal-overlay" id="report-modal" hidden>
+      <div class="modal">
+        <div class="modal-header">
+          <span>RESUMEN DEL SERVICIO</span>
+          <button class="modal-close" id="report-close">&times;</button>
+        </div>
+        <div class="modal-body" id="report-body"></div>
+        <div class="modal-footer">
+          <button class="btn" id="export-txt">Exportar TXT</button>
+          <button class="btn" id="export-html">Exportar HTML</button>
+          <button class="btn btn-primary" id="report-ok">CERRAR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div class="modal-overlay" id="confirm-modal" hidden>
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <span>⚠ CONFIRMAR ACCIÓN</span>
+        </div>
+        <div class="modal-body" id="confirm-body"></div>
+        <div class="modal-footer">
+          <button class="btn" id="confirm-cancel">CANCELAR</button>
+          <button class="btn btn-primary" id="confirm-ok">CONFIRMAR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drive Selection Modal -->
+    <div class="modal-overlay" id="drive-modal" hidden>
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <span>SELECCIONAR UNIDAD DE DESTINO</span>
+          <button class="modal-close" id="drive-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="panel-desc" id="drive-modal-hint">Seleccione una unidad secundaria válida. No se permite la unidad del sistema.</p>
+          <div id="drive-options" class="drive-options"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="drive-modal-cancel">CANCELAR</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

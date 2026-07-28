@@ -1,0 +1,27 @@
+DISKMASTER_v1 — INSTRUCCIONES RÁPIDAS
+=====================================
+
+OPCIÓN A — USAR DESDE ESTA CARPETA (desarrollo)
+1. Instalar Node.js LTS: https://nodejs.org/
+2. Doble clic en INICIAR.bat
+3. Se abrirá la aplicación DISKMASTER
+
+OPCIÓN B — CREAR EJECUTABLE PORTABLE (recomendado para USB)
+1. Instalar Node.js LTS: https://nodejs.org/
+2. Doble clic en COMPILAR.bat
+3. Esperar a que termine (puede tardar varios minutos la primera vez)
+4. El archivo estará en: dist\DiskMaster.exe
+5. Copia DiskMaster.exe a tu memoria USB
+6. En el PC del cliente, ejecuta DiskMaster.exe (no requiere instalación)
+
+USO EN EL CLIENTE
+1. Ejecutar DiskMaster.exe
+2. Clic en "analizar sistema"
+3. Revisar recomendaciones
+4. Activar "modo simulación" para probar sin cambios
+5. Clic en "ejecutar ahora" → vista previa → confirmar
+
+NOTAS
+- Solo funciona en Windows 10/11
+- No deja procesos en segundo plano al cerrar
+- Siempre revisa la vista previa antes de ejecutar cambios
