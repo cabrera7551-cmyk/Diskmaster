@@ -304,11 +304,18 @@ function registerIpcHandlers() {
     const redirectResults = [];
     for (const redirect of plan.folderRedirects || []) {
       const result = await redirectFolder(redirect.key || redirect.folderKey, redirect.newPath, {
-        simulation: sessionState.simulationMode
+        simulation: sessionState.simulationMode,
+        moveContents: true,
+        onProgress: (p) => sendProgress('redirect-progress', p)
       });
       redirectResults.push({ ...redirect, result });
       if (result.success) {
         logger.log(`Ruta de ${redirect.label || redirect.key} actualizada → ${redirect.newPath}`);
+        if (result.filesMoved) {
+          logger.log(`Archivos movidos: ${result.filesMoved} (${result.sizeMovedFormatted})`);
+        }
+      } else if (result.rollbackAttempted) {
+        logger.logError(`Redirección fallida, rollback realizado: ${result.error}`);
       }
     }
     sendStep('redirect', 'completed');

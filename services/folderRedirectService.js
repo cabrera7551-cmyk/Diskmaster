@@ -5,6 +5,9 @@
 const { runPowerShellJson, runPowerShell, sanitizePowerShellString } = require('../utils/powershell');
 const { getUserProfile, USER_FOLDERS } = require('../services/analysisService');
 const { BackupManager } = require('../utils/backupManager');
+const { executeMovePlan, getDirectorySize } = require('../services/moveService');
+const { hasEnoughSpace } = require('../utils/safety');
+const { formatBytes } = require('../utils/format');
 const path = require('path');
 const fs = require('fs');
 
@@ -174,7 +177,7 @@ async function restoreRegistryValue(folderKey) {
 }
 
 async function redirectFolder(folderKey, newPath, options = {}) {
-  const { simulation = false, moveContents = true } = options;
+  const { simulation = false, moveContents = true, onProgress } = options;
 
   if (process.platform !== 'win32') {
     return {
@@ -224,8 +227,133 @@ async function redirectFolder(folderKey, newPath, options = {}) {
     return { success: false, error: 'No se pudo crear backup del registro' };
   }
 
+  // Variables para seguimiento del movimiento
+  let moveResults = null;
+  let filesMoved = 0;
+  let sizeMoved = 0;
+
+  // FASE 1: Mover archivos si moveContents=true
+  if (moveContents) {
+    try {
+      // Calcular tamaño de la carpeta actual
+      if (onProgress) onProgress({ phase: 'calculate_size', message: 'Calculando tamaño de carpeta...' });
+      const folderSize = await getDirectorySize(currentPath);
+      
+      if (onProgress) onProgress({ phase: 'validate_space', message: 'Validando espacio en destino...' });
+      
+      // Validar espacio en destino
+      const spaceCheck = await hasEnoughSpace(newPath, folderSize, 10); // 10% de margen
+      if (!spaceCheck.ok) {
+        return {
+          success: false,
+          error: `Espacio insuficiente en destino. Necesario: ${formatBytes(spaceCheck.requiredWithMargin || spaceCheck.required)}, Disponible: ${formatBytes(spaceCheck.available)}`,
+          spaceValidationFailed: true,
+          backupCreated: true
+        };
+      }
+
+      // Preparar item para moveService
+      const moveItem = {
+        id: folderKey,
+        name: folderKey,
+        path: currentPath,
+        sizeBytes: folderSize,
+        sizeFormatted: formatBytes(folderSize),
+        category: folderKey,
+        customDest: newPath
+      };
+
+      // Mover archivos usando executeMovePlan
+      if (onProgress) onProgress({ phase: 'move_files', message: 'Moviendo archivos...' });
+      
+      moveResults = await executeMovePlan([moveItem], newPath, {
+        simulation: false,
+        onProgress: (p) => onProgress?.({ ...p, phase: 'move_files' })
+      });
+
+      if (moveResults.errors.length > 0) {
+        // Rollback: mover archivos de vuelta
+        if (onProgress) onProgress({ phase: 'rollback_move', message: 'Rollback: moviendo archivos de vuelta...' });
+        
+        const rollbackMove = await executeMovePlan(
+          [{ path: newPath, customDest: currentPath, sizeBytes: folderSize }],
+          currentPath,
+          { simulation: false }
+        );
+
+        return {
+          success: false,
+          error: `Error al mover archivos: ${moveResults.errors[0].error}`,
+          moveErrors: moveResults.errors,
+          rollbackAttempted: true,
+          rollbackSuccess: rollbackMove.errors.length === 0,
+          backupCreated: true
+        };
+      }
+
+      // Verificar que los archivos llegaron al destino
+      if (onProgress) onProgress({ phase: 'verify_move', message: 'Verificando movimiento...' });
+      
+      const verification = await verifyMoveResult(currentPath, newPath, folderSize);
+      if (!verification.allFilesPresent) {
+        // Rollback: mover archivos de vuelta
+        if (onProgress) onProgress({ phase: 'rollback_move', message: 'Rollback: moviendo archivos de vuelta...' });
+        
+        const rollbackMove = await executeMovePlan(
+          [{ path: newPath, customDest: currentPath, sizeBytes: folderSize }],
+          currentPath,
+          { simulation: false }
+        );
+
+        return {
+          success: false,
+          error: 'Verificación de movimiento falló - archivos restaurados',
+          verificationFailed: true,
+          verification,
+          rollbackAttempted: true,
+          rollbackSuccess: rollbackMove.errors.length === 0,
+          backupCreated: true
+        };
+      }
+
+      filesMoved = moveResults.processed;
+      sizeMoved = moveResults.totalBytes;
+
+    } catch (err) {
+      // Rollback en caso de error durante el movimiento
+      try {
+        if (onProgress) onProgress({ phase: 'rollback_move', message: 'Rollback: moviendo archivos de vuelta...' });
+        
+        const rollbackMove = await executeMovePlan(
+          [{ path: newPath, customDest: currentPath }],
+          currentPath,
+          { simulation: false }
+        );
+
+        return {
+          success: false,
+          error: `Error durante movimiento: ${err.message}`,
+          rollbackAttempted: true,
+          rollbackSuccess: rollbackMove.errors.length === 0,
+          backupCreated: true
+        };
+      } catch (rollbackErr) {
+        return {
+          success: false,
+          error: `Error crítico: ${err.message}. Rollback falló: ${rollbackErr.message}`,
+          rollbackAttempted: true,
+          rollbackSuccess: false,
+          backupCreated: true
+        };
+      }
+    }
+  }
+
+  // FASE 2: Modificar el registro de Windows (solo después de mover archivos exitosamente)
   const escaped = sanitizePowerShellString(newPath);
   const escapedCurrent = sanitizePowerShellString(currentPath);
+  
+  if (onProgress) onProgress({ phase: 'update_registry', message: 'Actualizando registro de Windows...' });
   
   const script = `
     $guid = '${guid}'
@@ -275,24 +403,58 @@ async function redirectFolder(folderKey, newPath, options = {}) {
         newPath, 
         previousPath: currentPath,
         moveContents, 
+        filesMoved,
+        sizeMoved,
+        sizeMovedFormatted: formatBytes(sizeMoved),
         backupCreated: true,
-        verificationPassed: true
+        verificationPassed: true,
+        moveResults
       };
     } else {
-      // Si la verificación falla, restaurar el backup
+      // Si la verificación falla, restaurar el backup del registro
+      // Y también rollback del movimiento si se movieron archivos
+      if (onProgress) onProgress({ phase: 'rollback_all', message: 'Rollback completo: registro y archivos...' });
+      
       await restoreRegistryValue(folderKey);
+      
+      if (moveContents && moveResults) {
+        const rollbackMove = await executeMovePlan(
+          [{ path: newPath, customDest: currentPath, sizeBytes: sizeMoved }],
+          currentPath,
+          { simulation: false }
+        );
+      }
+      
       return { 
         success: false, 
         error: 'La redirección no se verificó correctamente - se restauró el valor original', 
         rollbackAttempted: true,
+        rollbackMoveSuccess: !moveContents || (moveResults && moveResults.errors.length === 0),
         verification 
       };
     }
   }
 
-  // Si falla, intentar restaurar el backup
+  // Si falla la modificación del registro, hacer rollback del movimiento
+  if (onProgress) onProgress({ phase: 'rollback_move', message: 'Rollback: moviendo archivos de vuelta por fallo de registro...' });
+  
+  if (moveContents && moveResults) {
+    const rollbackMove = await executeMovePlan(
+      [{ path: newPath, customDest: currentPath, sizeBytes: sizeMoved }],
+      currentPath,
+      { simulation: false }
+    );
+  }
+  
+  // Restaurar el backup del registro
   await restoreRegistryValue(folderKey);
-  return { success: false, error: result.stderr || 'Error al redirigir carpeta', rollbackAttempted: true };
+  
+  return { 
+    success: false, 
+    error: result.stderr || 'Error al redirigir carpeta', 
+    rollbackAttempted: true,
+    rollbackMoveSuccess: !moveContents || (moveResults && moveResults.errors.length === 0)
+  };
 }
 
 async function verifyFolderRedirect(folderKey, expectedPath) {
@@ -302,11 +464,73 @@ async function verifyFolderRedirect(folderKey, expectedPath) {
   return { verified: match, current: current?.current, expected: expectedPath };
 }
 
+/**
+ * Verifica que el movimiento de archivos se completó correctamente
+ */
+async function verifyMoveResult(sourcePath, destPath, expectedSize) {
+  try {
+    // Verificar que el destino existe
+    if (!fs.existsSync(destPath)) {
+      return { allFilesPresent: false, reason: 'Destino no existe' };
+    }
+
+    // Verificar que el origen ya no tiene archivos (opcional, puede fallar si hay archivos bloqueados)
+    const sourceExists = fs.existsSync(sourcePath);
+    let sourceFiles = 0;
+    if (sourceExists) {
+      try {
+        sourceFiles = fs.readdirSync(sourcePath).length;
+      } catch {
+        // No se puede leer el origen, puede estar bloqueado
+      }
+    }
+
+    // Verificar que el destino tiene archivos
+    let destFiles = 0;
+    try {
+      destFiles = fs.readdirSync(destPath).length;
+    } catch {
+      return { allFilesPresent: false, reason: 'No se puede leer el destino' };
+    }
+
+    if (destFiles === 0) {
+      return { allFilesPresent: false, reason: 'Destino está vacío' };
+    }
+
+    // Verificar tamaño del destino (si se proporcionó tamaño esperado)
+    if (expectedSize > 0) {
+      const destSize = await getDirectorySize(destPath);
+      // Permitir una pequeña variación (+/- 5%) por archivos de sistema ocultos
+      const sizeDiff = Math.abs(destSize - expectedSize);
+      const allowedDiff = expectedSize * 0.05;
+      
+      if (sizeDiff > allowedDiff) {
+        return { 
+          allFilesPresent: false, 
+          reason: `Tamaño del destino no coincide. Esperado: ${formatBytes(expectedSize)}, Actual: ${formatBytes(destSize)}`,
+          expectedSize,
+          actualSize: destSize
+        };
+      }
+    }
+
+    return {
+      allFilesPresent: true,
+      sourceFiles,
+      destFiles,
+      sourceStillHasFiles: sourceFiles > 0
+    };
+  } catch (err) {
+    return { allFilesPresent: false, reason: `Error en verificación: ${err.message}` };
+  }
+}
+
 module.exports = {
   FOLDER_REGISTRY_MAP,
   getCurrentFolderLocations,
   redirectFolder,
   verifyFolderRedirect,
+  verifyMoveResult,
   backupRegistryValue,
   restoreRegistryValue,
   getBackupManager,

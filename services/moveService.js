@@ -288,5 +288,6 @@ module.exports = {
   ensureDirectory,
   moveItem,
   executeMovePlan,
+  getDirectorySize,
   isFileLocked
 };
