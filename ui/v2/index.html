@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>DISKMASTER v2.0 // smart storage manager</title>
+  <link rel="icon" type="image/png" href="../../assets/icon.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="dots">
+          <span class="dot dot-grey"></span>
+          <span class="dot dot-grey"></span>
+          <span class="dot dot-blue"></span>
+        </div>
+        <span class="sidebar-brand">diskmaster</span>
+      </div>
+
+      <nav class="sidebar-nav" id="sidebar-nav">
+        <button class="nav-item active" data-view="dashboard">~/panel</button>
+        <button class="nav-item" data-view="analyze">~/analizar</button>
+        <button class="nav-item" data-view="explore">~/explorar</button>
+        <button class="nav-item" data-view="manage">~/gestionar</button>
+        <button class="nav-item" data-view="recommendations">~/recomendaciones</button>
+        <button class="nav-item" data-view="settings">~/ajustes</button>
+        <button class="nav-item" data-view="history">~/historial</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span class="muted">demo // datos de ejemplo</span>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+
+      <!-- DASHBOARD -->
+      <section class="view active" id="view-dashboard">
+        <header class="view-head">
+          <h1 class="title"><span class="accent">DISK</span>MASTER v2.0</h1>
+          <p class="subtitle">smart storage manager // gestor inteligente de almacenamiento</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> scan --drive C:
+          <span class="muted">// unidad principal, ultimo analisis hace 4 min</span>
+        </p>
+
+        <div class="metrics" id="metric-cards"></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">uso de disco</span>
+            <span class="muted">— 480 GB total</span>
+          </div>
+          <div class="usage-bar" id="usage-bar"></div>
+          <div class="legend" id="usage-legend"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">archivos grandes recientes</span>
+          </div>
+          <ul class="file-list" id="large-files"></ul>
+        </div>
+
+        <footer class="signature">by kevin cabrera<span class="caret"></span></footer>
+      </section>
+
+      <!-- ANALIZAR -->
+      <section class="view" id="view-analyze">
+        <header class="view-head">
+          <h2 class="view-title">~/analizar</h2>
+          <p class="subtitle">deteccion de unidades // solo demostracion</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> analyze --all
+          <span class="muted">// vista de maqueta, no ejecuta ninguna accion</span>
+        </p>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" type="button">analizar sistema</button>
+          <button class="btn" type="button">analizar unidad</button>
+          <button class="btn" type="button">detener</button>
+        </div>
+
+        <div class="metrics" id="analyze-drives"></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">progreso del analisis</span>
+          </div>
+          <div class="progress-list" id="analyze-progress"></div>
+        </div>
+      </section>
+
+      <!-- EXPLORAR -->
+      <section class="view" id="view-explore">
+        <header class="view-head">
+          <h2 class="view-title">~/explorar</h2>
+          <p class="subtitle">explorador de demostracion // sin acceso al sistema de archivos</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> ls C:\Usuarios\kevin
+          <span class="muted">// contenido simulado</span>
+        </p>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">contenido</span>
+            <span class="muted">— 8 elementos</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>nombre</th>
+                  <th>tipo</th>
+                  <th>tamaño</th>
+                  <th>modificado</th>
+                </tr>
+              </thead>
+              <tbody id="explore-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- GESTIONAR -->
+      <section class="view" id="view-manage">
+        <header class="view-head">
+          <h2 class="view-title">~/gestionar</h2>
+          <p class="subtitle">acciones de gestion // maqueta sin ejecucion</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> manage --selection
+          <span class="muted">// los botones no realizan cambios</span>
+        </p>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" type="button">mover a D:</button>
+          <button class="btn" type="button">limpiar temporales</button>
+          <button class="btn" type="button">eliminar duplicados</button>
+          <button class="btn" type="button">crear respaldo</button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">elementos seleccionables</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="col-check"></th>
+                  <th>elemento</th>
+                  <th>ubicacion</th>
+                  <th>tamaño</th>
+                  <th>estado</th>
+                </tr>
+              </thead>
+              <tbody id="manage-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- RECOMENDACIONES -->
+      <section class="view" id="view-recommendations">
+        <header class="view-head">
+          <h2 class="view-title">~/recomendaciones</h2>
+          <p class="subtitle">sugerencias generadas // datos de ejemplo</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> recommend --min-size 500MB
+          <span class="muted">// 5 sugerencias, 12.4 GB recuperables</span>
+        </p>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">recomendaciones</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>elemento</th>
+                  <th>tamaño</th>
+                  <th>tipo</th>
+                  <th>accion sugerida</th>
+                </tr>
+              </thead>
+              <tbody id="recommendations-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- AJUSTES -->
+      <section class="view" id="view-settings">
+        <header class="view-head">
+          <h2 class="view-title">~/ajustes</h2>
+          <p class="subtitle">preferencias visuales // sin persistencia</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> config --list
+          <span class="muted">// los cambios no se guardan</span>
+        </p>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">opciones</span>
+          </div>
+          <div class="settings-list" id="settings-toggles"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">rutas preferidas</span>
+          </div>
+          <div class="settings-list" id="settings-paths"></div>
+        </div>
+      </section>
+
+      <!-- HISTORIAL -->
+      <section class="view" id="view-history">
+        <header class="view-head">
+          <h2 class="view-title">~/historial</h2>
+          <p class="subtitle">registro de actividad // entradas de ejemplo</p>
+        </header>
+
+        <p class="cmdline">
+          <span class="prompt">&gt;</span> log --tail 8
+          <span class="muted">// solo lectura</span>
+        </p>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">log</span>
+          </div>
+          <div class="log" id="history-log"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="js/nav.js"></script>
+</body>
+</html>
